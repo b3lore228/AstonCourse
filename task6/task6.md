@@ -293,6 +293,9 @@ nano Dockerfile
 ```bash
 FROM maven:3.9.11-eclipse-temurin-8 #Используем официальный Docker-образ, в котором уже установлены Java 8, Maven, информацию о необходимых компонентах взял в pom.xml
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl \   #Устанавливаем curl ля корректных проверок
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app #Создаём рабочую директорию контейнера
 
 COPY . . #Копируем весь проект внутрь контейнера
@@ -437,6 +440,9 @@ COPY . . #Копируем весь проект
 RUN npm run build #Собирраем Angular для package.json
 
 FROM nginx:latest #Подключаем nginx
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \   #Устанавливаем curl, чтобы корректно отрабатывались проверки
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=0 /app/dist/ /usr/share/nginx/html/ #Копируем файлы в каталог nginx
 
@@ -721,9 +727,14 @@ services:
     container_name: kanban-app
 
 
-    depends_on:
-      postgres:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    ports:
+      - "8081:8080"
 
     ports:
       - "8081:8080"
@@ -732,17 +743,21 @@ services:
     build: ../kanban-frontend
     container_name: frontend1
 
-    depends_on:
-      backend:
-        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   frontend2:
     build: ../kanban-frontend
     container_name: frontend2
 
-    depends_on:
-      backend:
-        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   nginx:
     image: nginx:latest
