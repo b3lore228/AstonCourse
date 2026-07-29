@@ -32,7 +32,6 @@ http {
         server kanban-app:8080;
     }
 
-    # HTTP -> HTTPS редирект
     server {
         listen 80;
         server_name app.local;
@@ -61,14 +60,16 @@ http {
 }
 ```
 
-Создаём папку для самоподписанного сертификата, т.к. в config файле мы прописали уже HTTPS протокол и редирект с 80 на 443
+В этоом файле мы добавили работу по HHTPS у nginx, прописали, сертификаты, используемые nginx
+
+
+Создаём папку для самоподписанного сертификата, т.к. в config файле мы прописали уже HTTPS протокол и редирект с 80 на 443, создаём самоподписанный сертификат и кладём его файлы в созданную папку, как мы это делали в предыдущем задании
 
 ```bash
 mkdir -p nginx/certs
 openssl req -x509 -nodes -days 365 -newkey rsa:2048   -keyout nginx/certs/app.local.key   -out nginx/certs/app.local.crt   -subj "/CN=app.local"
 ```
 
-Создаём самоподписанный сертификат и кладём его файлы в созданную папку.
 
 Добавляем в файл /etc/hosts резовл app.local на 127.0.0.1
 
@@ -84,7 +85,7 @@ nano /etc/hosts
 127.0.0.1 app.local
 ```
 
-Переходим к docker-compose.yml файлу, необходимо отредактировать очерёдность запуска.
+Переходим к docker-compose.yml файлу, необходимо отредактировать очерёдность запуска, а так же прописать работу с сертификатами и 443 портом
 
 ```bash
 nano docker-compose.yml
@@ -150,13 +151,180 @@ services:
       frontend1:
         condition: service_healthy
       frontend2:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
 
-    ports:
-      - "8080:80"
-
 volumes:
   postgres-data:
 ```
+
+Что изменилось с прошлого задания:
+
+1: Прописана конфигурация работы по HTTPS протоколу
+2: Изменена методология проверки очерёдности запуска контейнеров
+
+
+Далее для проверки конфигра прогоним через встроеный валидатор docker-compose.yml
+
+```bash
+docker compose config
+```
+
+Пример вывода:
+
+```plaintext
+name: kanban-backend
+services:
+  backend:
+    build:
+      context: /home/odmin1/kanban-backend
+      dockerfile: Dockerfile
+    container_name: kanban-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8080
+        published: "8081"
+        protocol: tcp
+  frontend1:
+    build:
+      context: /home/odmin1/kanban-frontend
+      dockerfile: Dockerfile
+    container_name: frontend1
+    depends_on:
+      backend:
+        condition: service_started
+        required: true
+    networks:
+      default: null
+  frontend2:
+    build:
+      context: /home/odmin1/kanban-frontend
+      dockerfile: Dockerfile
+    container_name: frontend2
+    depends_on:
+      backend:
+        condition: service_started
+        required: true
+    networks:
+      default: null
+  nginx:
+    container_name: kanban-nginx
+    depends_on:
+      frontend1:
+        condition: service_healthy
+        required: true
+      frontend2:
+        condition: service_healthy
+        required: true
+    image: nginx:latest
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 80
+        published: "80"
+        protocol: tcp
+      - mode: ingress
+        target: 443
+        published: "443"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /home/odmin1/kanban-backend/nginx/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/odmin1/kanban-backend/nginx/certs
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: true
+  postgres:
+    container_name: kanban-postgres
+    environment:
+      POSTGRES_DB: kanban
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    image: postgres:13
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 5432
+        published: "5432"
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+        volume: {}
+networks:
+  default:
+    name: kanban-backend_default
+volumes:
+  postgres-data:
+    name: kanban-backend_postgres-data
+```
+
+Так же стоит изменить default.conf, чтобы он позволил контейнерам увидеть друг друга
+
+```bash
+nano /home/odmin1/kanban-frontend/default.conf
+```
+
+Содержимое файла default.conf:
+
+```plaintext
+server {
+    listen 80;
+
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Далее пробуем собрать, применив все параметры и изменения, которые мы внесли
+
+```bash
+docker compose up -d --build
+```
+
+Пример вывода:
+
+```plaintext
+ ✔ backend                              Built                                                                                                                                                                                           0.0s
+ ✔ frontend1                            Built                                                                                                                                                                                           0.0s
+ ✔ frontend2                            Built                                                                                                                                                                                           0.0s
+ ✔ Network kanban-backend_default       Created                                                                                                                                                                                         0.6s
+ ✔ Volume kanban-backend_postgres-data  Created                                                                                                                                                                                         0.2s
+ ✔ Container frontend1                  Healthy                                                                                                                                                                                        26.2s
+ ✔ Container frontend2                  Healthy                                                                                                                                                                                        26.1s
+ ✔ Container kanban-postgres            Healthy                                                                                                                                                                                        27.5s
+ ✔ Container kanban-nginx               Started                                                                                                                                                                                        20.6s
+ ✔ Container kanban-app                 Started 
+```
+
+После завершения сборки приложение становится доступно по адресу https://app.local. При обращении к / открывается frontend, а запросы к /api/ автоматически перенаправляются в backend через Nginx
