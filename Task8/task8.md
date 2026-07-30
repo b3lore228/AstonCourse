@@ -232,3 +232,7 @@ To https://gitlab.com/aston-learning/kanban-backend
 Далее переходим в GitLab и проверяем, если аккаунт не верифицирован, то pipeline будет в ошибке, но деплой должен случиться.
 
 Один из простых методов проверки - просмотр файла default.conf, так как он был изменён в предыдущем задании, а так же по наличию файла .gitlab-ci.yml
+
+Ссылка на репозиторий backend https://gitlab.com/aston-learning/kanban-backend
+
+Ссылка на репозиторий frontend https://gitlab.com/aston-learning/kanban-frontend
